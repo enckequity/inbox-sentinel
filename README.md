@@ -77,7 +77,7 @@ entirely.
    Full first-time Gmail setup lives in [GMAIL-SETUP.md](GMAIL-SETUP.md):
    Google Cloud project, consent/test users, Desktop client, masked host
    secrets, SSH callback tunnel, grant verification, refresh-token expiry,
-   and push prerequisites.
+   and delivery prerequisites.
 
 3. **Enter secrets in the masked host UI, not chat.** Use the installed plugin's
    settings form where exposed. Gmail uses a client ID and client secret; IMAP
@@ -92,12 +92,11 @@ entirely.
    A phone-only SSH session may not provide the required tunnel. IMAP skips OAuth.
    Do not copy browser profiles or automate consent.
 
-4. **Choose delivery and priorities.** `push` requires the mobile-push integration
-   to be installed and configured for your Hermes app, in the same profile.
-   It is a platform plugin, so that profile needs `plugins.isolation: in_process`
-   (the Hermes default); a profile set to `host` cannot load push. Otherwise use another
-   configured `hermes send` destination. Set priorities in the settings form or
-   `config.yaml`, for example:
+4. **Choose delivery and priorities.** Alerts go through the gateway's normal
+   send path (`hermes send --to <target>`). The default `relay` delivers to the
+   relay platform's configured home channel; any other configured gateway target
+   (for example `telegram` or `discord:#ops`) works. App push is refused. Set
+   priorities in the settings form or `config.yaml`, for example:
 
    ```yaml
    plugins:
@@ -105,11 +104,11 @@ entirely.
        inbox-sentinel:
          settings:
            enabled: false
-           provider: gmail
+           provider: imap
            importance_profile: >-
              Client bookings, invoices, medical appointments, and parcels.
              Skip routine newsletters and social-media updates.
-           delivery_target: push
+           delivery_target: relay
    ```
 
 5. **Enable and verify.** Set the watcher setting `enabled: true`, then start a
@@ -156,7 +155,7 @@ Gmail history API or IMAP poll ──▶ local noise filter ──▶ IS-ScamShi
 | `oauth:` + `credentialed_provider_request` | Gmail access with a Hermes-owned, profile-scoped grant — the plugin never touches a token |
 | `ctx.llm` + `register_auxiliary_task` | importance gate (`complete_structured`) and reply drafts (`complete`) through two plugin-owned model slots that follow your main model until you pin them |
 | `ctx.state` | atomic, profile-scoped durable state (cursor, seen-set, budget) that survives plugin updates |
-| `hermes send --to push` | native mobile-app push delivery (any `hermes send` target works) |
+| `hermes send --to relay` | gateway delivery to the home channel (any configured gateway target works; app push is refused) |
 
 Read-only by design: the plugin holds the `gmail.readonly` scope and never sends,
 labels, archives or deletes your mail.
@@ -175,7 +174,7 @@ labels, archives or deletes your mail.
 | `imap_password` | *(secret, env `INBOX_SENTINEL_IMAP_PASSWORD`)* | IMAP password or app password |
 | `imap_folder` | `INBOX` | IMAP folder (mailbox) to watch |
 | `poll_interval_seconds` | `15` | Seconds between polls (min 5) |
-| `delivery_target` | `push` | Configured out-of-band `hermes send` target, or `none`; live session injection is refused |
+| `delivery_target` | `relay` | Gateway send target (default: the relay home channel), or `none`; app push and live session injection are refused |
 | `importance_profile` | *(generic)* | Plain-language description of what matters to you |
 | `draft_replies` | `true` | Pre-draft replies for important mail |
 | `daily_gate_cap` | `100` | Classification attempts/day (0–1000); pending mail defers at the limit |
@@ -404,7 +403,6 @@ See [TESTING.md](TESTING.md) for reproducible no-account tests and their limits.
 See [SECURITY.md](SECURITY.md) for boundaries, limits and release checks.
 Requires Hermes v0.23.0 or later (`requires_hermes: ">=0.23.0"`). That is the
 only tested release; the plugin-owned model slots need a recent host API.
-Mobile push requires the separate configured push integration.
 
 ## License
 
