@@ -57,7 +57,7 @@ def test_email_never_enters_live_session(plugin, ctx):
 
 
 def test_missing_binary_does_not_inject_fallback(plugin, ctx):
-    ctx.config.update({'delivery_target': 'push', 'hermes_send_path': '/definitely/not/hermes'})
+    ctx.config.update({'delivery_target': 'relay', 'hermes_send_path': '/definitely/not/hermes'})
     with pytest.raises(RuntimeError, match='binary'):
         asyncio.run(plugin._deliver(ctx, 'attacker controlled'))
     assert not ctx.injected_messages
@@ -73,7 +73,7 @@ def test_test_tool_deliver_uses_out_of_band_route(plugin, ctx, alerts):
 
 
 def test_cancelled_delivery_kills_and_reaps_child(plugin, ctx, monkeypatch):
-    ctx.config.update({'delivery_target': 'push', 'hermes_send_path': sys.executable})
+    ctx.config.update({'delivery_target': 'relay', 'hermes_send_path': sys.executable})
     class Child:
         returncode = None
         killed = False
@@ -198,7 +198,7 @@ def test_mail_identifiers_do_not_leak_into_logs(plugin, ctx, alerts, caplog):
 
 def test_delivery_binds_profile_and_removes_active_session(plugin, ctx, monkeypatch):
     ctx.profile_name = 'demo'
-    ctx.config.update({'delivery_target': 'push', 'hermes_send_path': sys.executable})
+    ctx.config.update({'delivery_target': 'relay', 'hermes_send_path': sys.executable})
     monkeypatch.setenv('HERMES_SESSION_ID', 'unrelated-chat')
     monkeypatch.setenv('HERMES_YOLO_MODE', '1')
     calls = []

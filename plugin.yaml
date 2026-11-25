@@ -2,12 +2,13 @@ name: inbox-sentinel
 version: 0.1.0
 author: Edd Withers
 description: >-
-  Watches Gmail or IMAP inboxes and surfaces messages that matter. Can
-  draft replies when appropriate. Best with the new Hermes app by Nous
-  Research, currently in beta; other `hermes send` targets still work.
+  Watches an IMAP (app password) or Gmail inbox and alerts you in your
+  workspace's home chat about messages that matter, with scam, link and
+  attachment warnings. Can draft replies when appropriate. Never sends,
+  labels or deletes mail.
 license: MIT
 homepage: https://github.com/eddwithers/inbox-sentinel
-tags: [email, gmail, imap, push, notifications, mobile]
+tags: [email, gmail, imap, notifications]
 manifest_version: 2
 api_version: 1
 requires_hermes: ">=0.23.0"
@@ -126,8 +127,9 @@ config_schema:
     default: gmail
     choices: [gmail, imap]
     description: >-
-      Mail backend. "gmail" uses Gmail history polling over OAuth.
-      "imap" is for servers that accept username/password or app-password
+      Mail backend. "gmail" uses Gmail history polling over OAuth and works
+      only when the Google OAuth client and sign-in are configured.
+      "imap" needs no OAuth and is for servers that accept username/password or app-password
       login over TLS; fill host, user, and password in the masked settings
       UI when available.
   gmail_query:
@@ -184,11 +186,12 @@ config_schema:
     description: Seconds between Gmail or IMAP polls
   delivery_target:
     type: str
-    default: push
+    default: relay
     description: >-
-      Where alerts go — any `hermes send` target. "push" pings the Hermes
-      mobile beta; "none" disables delivery. Live session injection is not supported. Other values name a platform
-      target like "telegram" or "discord:#ops".
+      Where alerts go, as a gateway send target. "relay" (the default) is
+      the workspace's home chat; "none" disables delivery. App push and
+      live session injection are not supported. Other values name a
+      platform target like "telegram" or "discord:#ops".
   importance_profile:
     type: str
     default: ""
@@ -298,4 +301,4 @@ config_schema:
   hermes_send_path:
     type: str
     default: ""
-    description: Path to the hermes binary if not on PATH
+    description: Path to the assistant's command-line binary if not on PATH
