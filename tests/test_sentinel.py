@@ -757,14 +757,14 @@ def test_deliver_session_target_injects(plugin, ctx):
     assert ctx.injected_messages == []
 
 
-def test_deliver_push_target_shells_out(plugin, ctx, monkeypatch, tmp_path):
+def test_deliver_gateway_target_shells_out(plugin, ctx, monkeypatch, tmp_path):
     # The plugin only shells out when the configured binary actually exists
     # on disk; otherwise it falls back to inject_message. Point it at a real
     # file (contents irrelevant — we monkeypatch create_subprocess_exec).
     fake = tmp_path / "hermes"
     fake.write_text("#!/bin/sh\nexit 0\n")
     fake.chmod(0o755)
-    ctx.config["delivery_target"] = "push"
+    ctx.config["delivery_target"] = "relay"
     ctx.config["hermes_send_path"] = str(fake)
     monkeypatch.setenv("HERMES_HOME", "/tmp/hermes-home")
     monkeypatch.setenv("HERMES_SESSION_ID", "session-123")
@@ -773,10 +773,10 @@ def test_deliver_push_target_shells_out(plugin, ctx, monkeypatch, tmp_path):
     captured = []
     _install_fake_subprocess(monkeypatch, returncode=0, capture=captured)
     asyncio.run(plugin._deliver(ctx, "payload"))
-    assert captured, "push delivery should spawn hermes send"
+    assert captured, "gateway delivery should spawn hermes send"
     argv, kwargs = captured[0]
     assert argv[:5] == (str(fake), "--profile", ctx.profile_name, "send", "--to")
-    assert argv[5] == "push"
+    assert argv[5] == "relay"
     assert argv[6:] == ("--quiet", "payload")
     env = kwargs["env"]
     assert env["HERMES_HOME"] == "/tmp/hermes-home"
@@ -785,20 +785,20 @@ def test_deliver_push_target_shells_out(plugin, ctx, monkeypatch, tmp_path):
     assert "HERMES_YOLO_MODE" not in env
 
 
-def test_deliver_push_nonzero_raises(plugin, ctx, monkeypatch, tmp_path):
+def test_deliver_gateway_nonzero_raises(plugin, ctx, monkeypatch, tmp_path):
     fake = tmp_path / "hermes"
     fake.write_text("#!/bin/sh\nexit 0\n")
     fake.chmod(0o755)
-    ctx.config["delivery_target"] = "push"
+    ctx.config["delivery_target"] = "relay"
     ctx.config["hermes_send_path"] = str(fake)
     _install_fake_subprocess(monkeypatch, returncode=2, stderr=b"bad")
     with pytest.raises(RuntimeError):
         asyncio.run(plugin._deliver(ctx, "payload"))
 
 
-def test_deliver_push_missing_binary_falls_back_to_inject(
+def test_deliver_gateway_missing_binary_does_not_inject(
         plugin, ctx, monkeypatch):
-    ctx.config["delivery_target"] = "push"
+    ctx.config["delivery_target"] = "relay"
     ctx.config["hermes_send_path"] = "/definitely/not/a/real/hermes"
     # Make sure the PATH-lookup fallback also fails.
     monkeypatch.setattr(plugin.shutil, "which", lambda _: None)
@@ -806,6 +806,33 @@ def test_deliver_push_missing_binary_falls_back_to_inject(
                         lambda: "/also/not/real")
     with pytest.raises(RuntimeError, match="hermes binary unavailable"):
         asyncio.run(plugin._deliver(ctx, "payload"))
+    assert ctx.injected_messages == []
+
+
+def test_deliver_default_target_is_gateway_home_channel(plugin, ctx, monkeypatch, tmp_path):
+    fake = tmp_path / "hermes"
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    fake.chmod(0o755)
+    ctx.config["hermes_send_path"] = str(fake)  # no delivery_target configured
+    captured = []
+    _install_fake_subprocess(monkeypatch, returncode=0, capture=captured)
+    asyncio.run(plugin._deliver(ctx, "payload"))
+    argv, _ = captured[0]
+    assert argv[3:6] == ("send", "--to", "relay")
+    assert plugin._status(ctx)["delivery_target"] == "relay"
+
+
+@pytest.mark.parametrize("target", ["push", "PUSH", "push:device"])
+def test_deliver_app_push_is_refused(plugin, ctx, monkeypatch, tmp_path, target):
+    fake = tmp_path / "hermes"
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    fake.chmod(0o755)
+    ctx.config.update({"delivery_target": target, "hermes_send_path": str(fake)})
+    captured = []
+    _install_fake_subprocess(monkeypatch, returncode=0, capture=captured)
+    with pytest.raises(RuntimeError, match="push delivery is disabled"):
+        asyncio.run(plugin._deliver(ctx, "payload"))
+    assert captured == []
     assert ctx.injected_messages == []
 
 

@@ -5,7 +5,8 @@ Architecture (each piece uses a documented Hermes surface):
   * Gmail REST: credentialed_provider_request (Hermes-owned OAuth grant)
   * importance gate + summaries + drafts: ctx.llm (host-owned credentials, task-routed auxiliary slots)
   * durable state: ctx.state (atomic, profile-scoped, survives updates)
-  * delivery: `hermes send --to <target>` (mobile app push by default)
+  * delivery: `hermes send --to <target>` through the gateway (the relay
+    platform's home channel by default; app push is refused)
 
 Uses local filtering, bounded parsing and model-call budgets. This plugin is a
 new implementation, not the older standalone watcher that informed its design.
@@ -162,11 +163,15 @@ async def _resource_notice(ctx, mid_prefix, mid, reason, account=None):
     await _deliver(ctx, text, account=account)
     ctx.state.set(key, day)
 
+# Alerts go through the gateway's normal send path (`hermes send --to relay`),
+# which delivers to the relay platform's configured home channel.
+DEFAULT_DELIVERY_TARGET = "relay"
+
 ACCESS_RETRY_SECONDS = 300    # poll interval while the account cannot be reached
 FAILURE_NOTICE_AFTER = 4      # consecutive failed polls before a health notice
 
 _HEALTH_REASONS = {
-    "not_signed_in": "Gmail is not signed in for this Hermes profile.",
+    "not_signed_in": "Gmail is not connected for this workspace.",
     "auth_failed": ("Gmail rejected the saved sign-in. It may have expired: Google ends "
                     "sign-ins for apps in Testing mode after seven days."),
     "repeated_failure": "The last {count} mailbox checks failed ({error}).",
@@ -181,14 +186,11 @@ async def _health_notice(ctx, kind, account=None, **fields):
     if ctx.state.get(key) == day:
         return
     reason = _HEALTH_REASONS[kind].format(**fields)
-    if account and account.get("provider") == "gmail" and kind in ("not_signed_in", "auth_failed"):
-        fix = (f"Sign in again: run `hermes auth add inbox-sentinel:{account['oauth_id']}` "
-               "in a terminal on the Hermes host, for this profile.")
-    elif account and account.get("provider") == "imap":
+    if account and account.get("provider") == "imap":
         fix = "Check this account's IMAP connection and profile secret settings."
     else:
-        fix = ("Sign in again: run `hermes auth add inbox-sentinel:gmail` in a terminal "
-               "on the Hermes host, for this profile."
+        fix = ("Reconnect Gmail for this workspace, or switch the inbox to IMAP with an "
+               "app password."
                if kind in ("not_signed_in", "auth_failed") else
                "Check `inbox_sentinel_status` and your mailbox settings.")
     text = ("INBOX SENTINEL — not watching your inbox\n\n" + reason + "\n"
@@ -236,14 +238,6 @@ _WATCHERS: dict = {}
 
 
 def register(ctx):
-    # Guided setup; interactive sign-in remains a user-owned host operation.
-    from pathlib import Path
-    skills_dir = Path(__file__).parent / "skills"
-    if skills_dir.is_dir():
-        for child in sorted(skills_dir.iterdir()):
-            skill_md = child / "SKILL.md"
-            if child.is_dir() and skill_md.exists():
-                ctx.register_skill(child.name, skill_md)
     ctx.register_tool(
         name="inbox_sentinel_status",
         toolset="inbox_sentinel",
@@ -1221,11 +1215,13 @@ async def _draft_reply(ctx, sender, subject, body, *, attachments=None, body_tru
 async def _deliver(ctx, text, account=None):
     target = (account.get("delivery_target") or "") if account else ""
     if not target:
-        target = _cfg(ctx, "delivery_target", "push")
+        target = _cfg(ctx, "delivery_target", DEFAULT_DELIVERY_TARGET)
     if target == "none":
         return
     if target == "session":
         raise RuntimeError("session delivery is disabled: email must stay out of agent context")
+    if isinstance(target, str) and target.split(":", 1)[0].strip().lower() == "push":
+        raise RuntimeError("app push delivery is disabled: use a gateway target")
     if not isinstance(target, str) or not target or target.startswith('-') or any(ch.isspace() for ch in target):
         raise RuntimeError("Invalid notification target")
     import os
@@ -1570,7 +1566,7 @@ def _status(ctx):
         "running": running,
         "profile": ctx.profile_name,
         "enabled": _cfg(ctx, "enabled", False),
-        "delivery_target": _cfg(ctx, "delivery_target", "push"),
+        "delivery_target": _cfg(ctx, "delivery_target", DEFAULT_DELIVERY_TARGET),
         "poll_interval_seconds": _cfg(ctx, "poll_interval_seconds", 15),
         "last_poll": state.get("last_poll"),
         "history_id": state.get("history_id"),

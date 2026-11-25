@@ -54,7 +54,7 @@ def imap_ctx(ctx):
         "imap_ssl": True,
         "imap_user": "me@example.test",
         "imap_folder": "INBOX",
-        "delivery_target": "push",
+        "delivery_target": "relay",
     })
     return ctx
 
@@ -529,3 +529,30 @@ def test_gmail_provider_still_default(plugin, ctx, gmail):
     asyncio.run(plugin._tick(ctx))
     assert ctx.state().get("history_id") == "2"
 
+
+
+def test_imap_app_password_works_without_gmail_oauth(
+        plugin, imap_ctx, imap_module, monkeypatch):
+    """Owner path: IMAP with an app password needs no Google OAuth client and
+    never touches the Gmail credential seam."""
+    monkeypatch.delenv("INBOX_SENTINEL_CLIENT_ID", raising=False)
+    monkeypatch.delenv("INBOX_SENTINEL_CLIENT_SECRET", raising=False)
+
+    def no_oauth(*_a, **_kw):
+        raise AssertionError("Gmail OAuth must not be used for provider=imap")
+    monkeypatch.setattr(plugin, "credentialed_provider_request", no_oauth)
+    fakes = []
+
+    def factory(host, port, ssl_context=None, timeout=None):
+        f = FakeIMAP(host, port, ssl_context)
+        f.inbox = {5: _make_rfc822()}
+        fakes.append(f)
+        return f
+    _install_fake_imap(monkeypatch, imap_module, factory)
+    _install_fake_secret(monkeypatch, imap_module, password="app-password")
+    monkeypatch.setattr(plugin, "_load_imap_module", lambda: imap_module)
+
+    asyncio.run(plugin._tick(imap_ctx))
+
+    assert fakes[0].login_called_with == ("me@example.test", "app-password")
+    assert imap_ctx.state().get("imap_last_uid") == 5

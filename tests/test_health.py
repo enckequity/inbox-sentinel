@@ -54,8 +54,10 @@ def test_not_signed_in_sends_one_notice_and_slows_polling(health, monkeypatch):
     assert len(ctx.delivered_messages) == 1
     notice = ctx.delivered_messages[0]
     assert notice.startswith("INBOX SENTINEL — not watching your inbox")
-    assert "not signed in" in notice
-    assert "hermes auth add inbox-sentinel:gmail" in notice
+    assert "Gmail is not connected for this workspace" in notice
+    assert "IMAP with an app password" in notice
+    for name in ("Hermes", "hermes", "Nous"):
+        assert name not in notice
     assert ctx.state.get("health_notice_day")
     # Two not-signed-in polls wait the access retry interval, not 15 seconds.
     assert total >= 2 * plugin.ACCESS_RETRY_SECONDS
